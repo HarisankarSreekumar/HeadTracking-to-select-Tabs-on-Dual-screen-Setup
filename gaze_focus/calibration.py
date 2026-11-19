@@ -3,7 +3,14 @@ from __future__ import annotations
 
 import statistics
 import time
-from typing import Callable
+from typing import Callable, NamedTuple
+
+from .gaze import GazeSample
+
+
+class CalibrationResult(NamedTuple):
+    monitors: dict[str, float]  # monitor id -> gaze yaw
+    pitch_baseline: float  # typical head pitch while looking at the screens
 
 
 class CalibrationError(Exception):
@@ -32,13 +39,14 @@ def compute_calibration(
 
 
 def run_calibration(
-    read_gaze: Callable[[], float | None],
+    read_gaze: Callable[[], GazeSample | None],
     monitors: list[str],
     prompt: Callable[[str], None],
     seconds: float = 3.0,
     clock: Callable[[], float] = time.monotonic,
-) -> dict[str, float]:
+) -> CalibrationResult:
     samples: dict[str, list[float]] = {}
+    pitches: list[float] = []
     for i, name in enumerate(monitors, start=1):
         prompt(
             f"Look at monitor {i} ({name}) the way you normally would while working, "
@@ -49,6 +57,8 @@ def run_calibration(
         while clock() < end:
             g = read_gaze()
             if g is not None:
-                values.append(g)
+                values.append(g.yaw)
+                pitches.append(g.pitch)
         samples[name] = values
-    return compute_calibration(samples)
+    monitors_cal = compute_calibration(samples)
+    return CalibrationResult(monitors_cal, statistics.median(pitches))

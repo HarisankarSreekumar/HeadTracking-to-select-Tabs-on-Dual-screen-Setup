@@ -16,6 +16,8 @@ class Config:
     hotkey: str = "ctrl+alt+g"
     camera_index: int = 0
     calibration: dict[str, float] = field(default_factory=dict)
+    pitch_baseline: float | None = None
+    max_pitch_dev_deg: float = 20.0
 
 
 def default_config_path() -> Path:

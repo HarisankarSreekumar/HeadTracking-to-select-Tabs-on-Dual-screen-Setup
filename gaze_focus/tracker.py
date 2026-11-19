@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from .config import default_config_path
-from .gaze import LANDMARK_IDS, combined_gaze, head_yaw_deg, iris_offset
+from .gaze import LANDMARK_IDS, GazeSample, combined_gaze, head_pose_deg, iris_offset
 
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
@@ -42,11 +42,15 @@ def ensure_model(path: Path | None = None) -> Path:
     return path
 
 
-def gaze_from_landmarks(points_px: np.ndarray, frame_w: int, frame_h: int, eye_weight: float) -> float:
+def gaze_from_landmarks(
+    points_px: np.ndarray, frame_w: int, frame_h: int, eye_weight: float
+) -> GazeSample | None:
     """points_px: (N, 2) pixel coords of all Face Mesh landmarks (N >= 478)."""
-    yaw = head_yaw_deg(points_px[list(LANDMARK_IDS)], frame_w, frame_h)
+    pose = head_pose_deg(points_px[list(LANDMARK_IDS)], frame_w, frame_h)
+    if pose is None:
+        return None
     offsets = [iris_offset(points_px[a], points_px[b], points_px[i]) for a, b, i in (_RIGHT_EYE, _LEFT_EYE)]
-    return combined_gaze(yaw, sum(offsets) / 2.0, eye_weight)
+    return GazeSample(combined_gaze(pose.yaw, sum(offsets) / 2.0, eye_weight), pose.pitch)
 
 
 class FaceTracker:
@@ -78,7 +82,7 @@ class FaceTracker:
         self._cap = cap
         return True
 
-    def read_gaze(self, eye_weight: float) -> float | None:
+    def read_gaze(self, eye_weight: float) -> GazeSample | None:
         import cv2
         import mediapipe as mp
 

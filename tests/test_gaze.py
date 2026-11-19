@@ -3,7 +3,7 @@ import math
 import cv2
 import numpy as np
 
-from gaze_focus.gaze import MODEL_POINTS, combined_gaze, head_yaw_deg, iris_offset
+from gaze_focus.gaze import MODEL_POINTS, combined_gaze, head_pose_deg, head_yaw_deg, iris_offset
 
 W, H = 1280, 720
 
@@ -39,3 +39,20 @@ def test_iris_offset_centre_and_edges():
 
 def test_combined_gaze():
     assert combined_gaze(10, 0.5, 0.5) == 13.75
+
+
+def _project_pitch(pitch_deg: float) -> np.ndarray:
+    cam = np.array([[W, 0, W / 2], [0, W, H / 2], [0, 0, 1]], dtype=np.float64)
+    rvec = np.array([math.radians(pitch_deg), 0.0, 0.0])
+    pts, _ = cv2.projectPoints(MODEL_POINTS, rvec, np.array([0.0, 0.0, 600.0]), cam, np.zeros(4))
+    return pts.reshape(-1, 2)
+
+
+def test_head_pose_reports_pitch():
+    assert abs(head_pose_deg(_project(0), W, H).pitch) < 2
+    for p in (30.0, -30.0):
+        pose = head_pose_deg(_project_pitch(p), W, H)
+        assert abs(abs(pose.pitch) - 30) < 3, pose
+        assert abs(pose.yaw) < 3, pose
+    # opposite rotations give opposite signs
+    assert head_pose_deg(_project_pitch(30), W, H).pitch * head_pose_deg(_project_pitch(-30), W, H).pitch < 0

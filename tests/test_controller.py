@@ -1,4 +1,5 @@
 from gaze_focus.config import Config
+from gaze_focus.gaze import GazeSample as S
 from gaze_focus.controller import CameraLoop, Controller
 from gaze_focus.windows import WindowInfo
 
@@ -13,7 +14,7 @@ class Fakes:
         self.focused = []
 
     def controller(self):
-        cfg = Config(dwell_s=0.5, smoothing_frames=1, calibration={"M1": -20.0, "M2": 20.0})
+        cfg = Config(dwell_s=0.5, smoothing_frames=1, calibration={"M1": -20.0, "M2": 20.0}, pitch_baseline=0.0)
         return Controller(
             cfg,
             current_monitors=lambda: self.monitors,
@@ -26,8 +27,8 @@ class Fakes:
 def test_switches_after_dwell():
     f = Fakes()
     c = f.controller()
-    assert c.on_gaze(20, 0.0) is None
-    assert c.on_gaze(20, 0.6) == W2.hwnd
+    assert c.on_gaze(S(20, 0), 0.0) is None
+    assert c.on_gaze(S(20, 0), 0.6) == W2.hwnd
     assert f.focused == [W2.hwnd]
     assert c.status == "running"
 
@@ -35,17 +36,17 @@ def test_switches_after_dwell():
 def test_face_lost_resets_and_never_focuses():
     f = Fakes()
     c = f.controller()
-    assert c.on_gaze(20, 0.0) is None
+    assert c.on_gaze(S(20, 0), 0.0) is None
     assert c.on_gaze(None, 0.3) is None
-    assert c.on_gaze(20, 0.6) is None
+    assert c.on_gaze(S(20, 0), 0.6) is None
     assert f.focused == []
 
 
 def test_no_focus_when_foreground_already_on_target():
     f = Fakes(fg="M2")
     c = f.controller()
-    c.on_gaze(20, 0.0)
-    assert c.on_gaze(20, 0.6) is None
+    c.on_gaze(S(20, 0), 0.0)
+    assert c.on_gaze(S(20, 0), 0.6) is None
     assert f.focused == []
 
 
@@ -54,7 +55,7 @@ def test_paused_does_nothing():
     c = f.controller()
     c.toggle_pause()
     for t in (0.0, 0.5, 1.0):
-        assert c.on_gaze(20, t) is None
+        assert c.on_gaze(S(20, 0), t) is None
     assert c.status == "paused"
     assert f.focused == []
 
@@ -62,8 +63,8 @@ def test_paused_does_nothing():
 def test_unknown_monitors_requires_recalibration():
     f = Fakes(monitors=("M1", "M3"))
     c = f.controller()
-    c.on_gaze(20, 0.0)
-    assert c.on_gaze(20, 1.0) is None
+    c.on_gaze(S(20, 0), 0.0)
+    assert c.on_gaze(S(20, 0), 1.0) is None
     assert c.status == "needs_calibration"
     assert f.focused == []
 
@@ -121,8 +122,20 @@ def test_loop_records_last_gaze_for_debug_output():
         is_open = True
 
         def read_gaze(self, eye_weight):
-            return 12.5
+            return S(12.5, 0)
 
     loop = CameraLoop(lambda: FakeTracker(), Fakes().controller(), clock=lambda: 0.0)
     loop.step()
-    assert loop.last_gaze == 12.5
+    assert loop.last_gaze == S(12.5, 0)
+
+
+def test_looking_down_at_phone_never_focuses():
+    f = Fakes()
+    c = f.controller()
+    # face still tracked, head turned slightly toward M2 but pitched far down
+    for t in (0.0, 0.3, 0.6, 1.0):
+        assert c.on_gaze(S(20, 35), t) is None
+    assert f.focused == []
+    # looking back up at M2 switches normally after a fresh dwell
+    assert c.on_gaze(S(20, 5), 1.1) is None
+    assert c.on_gaze(S(20, 5), 1.7) == W2.hwnd

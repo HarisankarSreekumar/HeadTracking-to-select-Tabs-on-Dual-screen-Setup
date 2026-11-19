@@ -79,14 +79,14 @@ def main() -> None:
         was_paused = controller.paused
         controller.paused = True
         try:
-            cal = run_calibration(lambda: loop.tracker.read_gaze(cfg.eye_weight), monitors, _message)
+            result = run_calibration(lambda: loop.tracker.read_gaze(cfg.eye_weight), monitors, _message)
         except CalibrationError as exc:
             _message(f"Calibration failed.\n\n{exc}", True)
             controller.paused = was_paused
-            controller.recalibrated(cfg.calibration)
+            controller.recalibrated(cfg.calibration, cfg.pitch_baseline)
             return
         controller.paused = was_paused
-        controller.recalibrated(cal)
+        controller.recalibrated(result.monitors, result.pitch_baseline)
         save_config(cfg, path)
         _message("Calibration saved. Gaze Focus is running.")
 

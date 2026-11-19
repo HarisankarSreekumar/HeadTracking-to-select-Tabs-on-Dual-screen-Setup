@@ -6,6 +6,7 @@ where each one is), so the absolute sign convention is just kept consistent.
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 import cv2
 import numpy as np
@@ -30,8 +31,20 @@ MODEL_POINTS = np.array(
 LANDMARK_IDS = (1, 152, 263, 33, 291, 61)
 
 
-def head_yaw_deg(image_points: np.ndarray, frame_w: int, frame_h: int) -> float:
-    """Head yaw in degrees from the 6 image points (pixels) matching MODEL_POINTS."""
+class GazeSample(NamedTuple):
+    """One frame's reading: combined head+eye yaw, and head pitch, in degrees."""
+
+    yaw: float
+    pitch: float
+
+
+class HeadPose(NamedTuple):
+    yaw: float
+    pitch: float
+
+
+def head_pose_deg(image_points: np.ndarray, frame_w: int, frame_h: int) -> HeadPose | None:
+    """Head yaw and pitch in degrees from the 6 image points matching MODEL_POINTS."""
     cam = np.array(
         [[frame_w, 0, frame_w / 2], [0, frame_w, frame_h / 2], [0, 0, 1]],
         dtype=np.float64,
@@ -44,10 +57,17 @@ def head_yaw_deg(image_points: np.ndarray, frame_w: int, frame_h: int) -> float:
         flags=cv2.SOLVEPNP_ITERATIVE,
     )
     if not ok:
-        return 0.0
+        return None
     rot, _ = cv2.Rodrigues(rvec)
-    # For a rotation about the camera Y axis, R[0, 2] == sin(angle).
-    return -math.degrees(math.asin(float(np.clip(rot[0, 2], -1.0, 1.0))))
+    # Rotation about camera Y: R[0, 2] == sin(angle). About camera X: R[1, 2] == -sin(angle).
+    yaw = -math.degrees(math.asin(float(np.clip(rot[0, 2], -1.0, 1.0))))
+    pitch = math.degrees(math.asin(float(np.clip(-rot[1, 2], -1.0, 1.0))))
+    return HeadPose(yaw, pitch)
+
+
+def head_yaw_deg(image_points: np.ndarray, frame_w: int, frame_h: int) -> float:
+    pose = head_pose_deg(image_points, frame_w, frame_h)
+    return pose.yaw if pose else 0.0
 
 
 def iris_offset(eye_outer: np.ndarray, eye_inner: np.ndarray, iris: np.ndarray) -> float:

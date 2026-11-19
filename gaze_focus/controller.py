@@ -6,6 +6,7 @@ from typing import Callable, Protocol
 
 from .classifier import DwellGate, MonitorClassifier, Smoother
 from .config import Config
+from .gaze import GazeSample
 from .windows import WindowInfo, pick_window
 
 
@@ -28,10 +29,11 @@ class Controller:
         self._classifier: MonitorClassifier | None = None
         self.paused = False
         self.status = "running"
-        self.recalibrated(cfg.calibration)
+        self.recalibrated(cfg.calibration, cfg.pitch_baseline)
 
-    def recalibrated(self, calibration: dict[str, float]) -> None:
+    def recalibrated(self, calibration: dict[str, float], pitch_baseline: float | None = None) -> None:
         self.cfg.calibration = dict(calibration)
+        self.cfg.pitch_baseline = pitch_baseline
         try:
             self._classifier = MonitorClassifier(calibration, self.cfg.hysteresis_deg)
         except ValueError:
@@ -51,7 +53,12 @@ class Controller:
         if self._classifier:
             self._classifier.reset()
 
-    def on_gaze(self, gaze: float | None, now: float) -> int | None:
+    def _looking_away(self, sample: GazeSample) -> bool:
+        """Head pitched well away from how the user sat during calibration (e.g. at a phone)."""
+        base = self.cfg.pitch_baseline
+        return base is not None and abs(sample.pitch - base) > self.cfg.max_pitch_dev_deg
+
+    def on_gaze(self, gaze: GazeSample | None, now: float) -> int | None:
         if self.paused:
             self.status = "paused"
             return None
@@ -60,10 +67,10 @@ class Controller:
             self._reset()
             return None
         self.status = "running"
-        if gaze is None:
+        if gaze is None or self._looking_away(gaze):
             self._reset()
             return None
-        target = self._dwell.update(self._classifier.classify(self._smoother.update(gaze)), now)
+        target = self._dwell.update(self._classifier.classify(self._smoother.update(gaze.yaw)), now)
         if target is None or self._foreground_monitor() == target:
             return None
         win = pick_window(self._list_windows(), target)
@@ -75,7 +82,7 @@ class Controller:
 class Tracker(Protocol):
     is_open: bool
 
-    def read_gaze(self, eye_weight: float) -> float | None: ...
+    def read_gaze(self, eye_weight: float) -> GazeSample | None: ...
 
 
 class CameraLoop:
@@ -93,7 +100,7 @@ class CameraLoop:
         self._clock = clock
         self._retry_s = retry_s
         self.tracker: Tracker | None = None
-        self.last_gaze: float | None = None
+        self.last_gaze: GazeSample | None = None
         self._next_attempt = float("-inf")
 
     def step(self) -> None:
