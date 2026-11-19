@@ -60,3 +60,11 @@ def test_dwell_none_resets():
     assert d.update(None, 0.3) is None
     assert d.update("R", 0.4) is None
     assert d.update("R", 0.9) == "R"
+
+
+def test_dwell_held_back_fires_as_soon_as_allowed():
+    d = DwellGate(0.5)
+    assert d.update("R", 0.0, allow=False) is None
+    assert d.update("R", 0.6, allow=False) is None
+    assert d.update("R", 0.7) == "R"
+    assert d.update("R", 0.8) is None

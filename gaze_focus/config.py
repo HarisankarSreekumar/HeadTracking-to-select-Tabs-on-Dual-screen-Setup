@@ -13,6 +13,7 @@ class Config:
     hysteresis_deg: float = 3.0
     smoothing_frames: int = 5
     eye_weight: float = 0.5
+    typing_grace_s: float = 1.0
     hotkey: str = "ctrl+alt+g"
     camera_index: int = 0
     calibration: dict[str, float] = field(default_factory=dict)

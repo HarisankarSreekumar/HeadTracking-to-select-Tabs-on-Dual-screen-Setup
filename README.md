@@ -47,6 +47,7 @@ Turn your head, not just your eyes. To run calibration again (for example after 
 - **Tray icon:** green means running, grey paused, orange "monitors changed, recalibrate", red "webcam unavailable" or "camera error" (it retries every 5 seconds).
 - **Ctrl+Alt+G** pauses and resumes it. Left-clicking the tray icon does the same.
 - A quick glance at the other monitor doesn't switch focus. You have to look there for about half a second.
+- While you're typing, it waits until you've stopped for about 1 second before switching, so reading the other screen mid-sentence doesn't steal your keystrokes.
 - Looking well down or up (at your phone or keyboard) never switches focus.
 - If you click a window on the monitor yourself, Gaze Focus leaves your choice alone.
 
@@ -60,6 +61,7 @@ Settings are stored in `%APPDATA%\GazeFocus\config.json`. Quit Gaze Focus before
 | `hysteresis_deg` | `3.0` | Extra degrees past the midpoint needed to switch; raise it if focus flips back and forth |
 | `smoothing_frames` | `5` | Frames averaged to steady the reading |
 | `eye_weight` | `0.5` | How much eye direction counts compared with head direction (`0` = head only) |
+| `typing_grace_s` | `1.0` | No switching until this many seconds after your last key press (`0` turns it off) |
 | `hotkey` | `ctrl+alt+g` | Pause/resume hotkey |
 | `camera_index` | `0` | Which webcam to use, if you have more than one |
 | `max_pitch_dev_deg` | `20.0` | How far (degrees) your head may tilt up or down from your calibrated posture before readings are ignored |
@@ -80,6 +82,7 @@ Please try each of these and report back what happened:
 - [ ] a. Calibration completes and says "Calibration saved".
 - [ ] b. Turning to the other monitor focuses its window within about 1 second.
 - [ ] c. A quick glance (under half a second) does **not** switch focus.
+- [ ] c2. While you keep typing, looking at the other monitor does **not** switch; about 1 second after you stop typing, it does.
 - [ ] d. After a switch, typing goes into the newly focused window without clicking.
 - [ ] e. Ctrl+Alt+G pauses (grey icon) and resumes (green icon).
 - [ ] f. Gaze Focus's CPU use in Task Manager (look for `python.exe`).

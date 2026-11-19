@@ -166,3 +166,20 @@ def test_tracker_exception_is_contained_and_camera_reopened():
     t[0] = 5.5
     loop.step()
     assert len(opened) == 2
+
+
+def test_no_switch_while_typing_then_switches_after_grace():
+    f = Fakes()
+    c = f.controller()
+    c.cfg.typing_grace_s = 1.0
+    c.note_keypress(0.0)
+    c.note_keypress(0.5)
+    assert c.on_gaze(S(20, 0), 0.0) is None
+    assert c.on_gaze(S(20, 0), 0.8) is None  # dwell met, but typed 0.3 s ago
+    assert c.on_gaze(S(20, 0), 1.4) is None  # still within 1 s of last key
+    assert f.focused == []
+    assert c.on_gaze(S(20, 0), 1.6) == W2.hwnd  # typing stopped > 1 s ago
+
+
+def test_typing_grace_defaults_to_one_second():
+    assert Config().typing_grace_s == 1.0

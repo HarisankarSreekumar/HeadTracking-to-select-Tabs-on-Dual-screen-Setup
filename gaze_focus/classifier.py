@@ -56,14 +56,15 @@ class DwellGate:
         self._dwell = float(dwell_s)
         self.reset()
 
-    def update(self, target: str | None, now: float) -> str | None:
+    def update(self, target: str | None, now: float, allow: bool = True) -> str | None:
+        """``allow=False`` keeps timing the current target but holds back firing."""
         if target is None:
             self.reset()
             return None
         if target != self._candidate:
             self._candidate, self._since, self._fired = target, now, False
             return None
-        if not self._fired and now - self._since >= self._dwell:
+        if allow and not self._fired and now - self._since >= self._dwell:
             self._fired = True
             return target
         return None

@@ -33,6 +33,7 @@ class Controller:
         self._classifier: MonitorClassifier | None = None
         self.paused = False
         self.status = "running"
+        self._last_keypress = float("-inf")
         # on_gaze runs on the camera thread; toggle_pause comes from the hotkey and
         # tray threads. One lock keeps smoother/dwell state consistent.
         self._lock = threading.RLock()
@@ -52,6 +53,10 @@ class Controller:
         self._reset()
         if not self.paused:
             self.status = "running" if self._classifier else "needs_calibration"
+
+    def note_keypress(self, now: float) -> None:
+        """Called on every key press (only the time is kept, never the key)."""
+        self._last_keypress = now
 
     def toggle_pause(self) -> None:
         with self._lock:
@@ -86,7 +91,10 @@ class Controller:
         if gaze is None or self._looking_away(gaze):
             self._reset()
             return None
-        target = self._dwell.update(self._classifier.classify(self._smoother.update(gaze.yaw)), now)
+        typing = now - self._last_keypress < self.cfg.typing_grace_s
+        target = self._dwell.update(
+            self._classifier.classify(self._smoother.update(gaze.yaw)), now, allow=not typing
+        )
         if target is None or self._foreground_monitor() == target:
             return None
         win = pick_window(self._list_windows(), target)

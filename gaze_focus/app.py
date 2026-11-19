@@ -148,7 +148,7 @@ def main() -> None:
 
     def on_quit(_icon=None, _item=None) -> None:
         stop.set()
-        keyboard.unhook_all_hotkeys()
+        keyboard.unhook_all()
         icon.stop()
 
     icon = pystray.Icon(
@@ -162,6 +162,8 @@ def main() -> None:
         ),
     )
     keyboard.add_hotkey(cfg.hotkey, on_toggle)
+    # Hold off switching while the user is typing. Only the time is recorded.
+    keyboard.on_press(lambda _e: controller.note_keypress(time.monotonic()))
     thread = threading.Thread(target=worker, name="gaze-focus-camera", daemon=True)
     thread.start()
     icon.run()
