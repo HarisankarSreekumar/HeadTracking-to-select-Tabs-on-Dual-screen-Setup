@@ -1,0 +1,11 @@
+[project]
+name = "gaze-focus"
+version = "0.1.0"
+description = "Focus the window on the monitor you are looking at, using a webcam."
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
