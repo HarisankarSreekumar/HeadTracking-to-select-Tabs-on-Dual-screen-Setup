@@ -38,18 +38,35 @@ def compute_calibration(
     return cal
 
 
+def describe_monitors(rects: dict[str, tuple[int, int, int, int]]) -> dict[str, str]:
+    """Human labels from monitor rectangles (left, top, right, bottom): LEFT/RIGHT, or TOP/BOTTOM if stacked."""
+    if len(rects) != 2:
+        return {name: f"#{i}" for i, name in enumerate(rects, start=1)}
+    (a, ra), (b, rb) = rects.items()
+    dx = abs((ra[0] + ra[2]) - (rb[0] + rb[2]))
+    dy = abs((ra[1] + ra[3]) - (rb[1] + rb[3]))
+    if dx >= dy:
+        first, second = sorted((a, b), key=lambda n: rects[n][0] + rects[n][2])
+        return {first: "LEFT", second: "RIGHT"}
+    first, second = sorted((a, b), key=lambda n: rects[n][1] + rects[n][3])
+    return {first: "TOP", second: "BOTTOM"}
+
+
 def run_calibration(
     read_gaze: Callable[[], GazeSample | None],
     monitors: list[str],
     prompt: Callable[[str], None],
     seconds: float = 3.0,
     clock: Callable[[], float] = time.monotonic,
+    labels: dict[str, str] | None = None,
 ) -> CalibrationResult:
     samples: dict[str, list[float]] = {}
     pitches: list[float] = []
+    labels = labels or {}
     for i, name in enumerate(monitors, start=1):
+        what = f"your {labels[name]} monitor" if name in labels else f"monitor {i} ({name})"
         prompt(
-            f"Look at monitor {i} ({name}) the way you normally would while working, "
+            f"Turn to {what} the way you normally would while working, "
             f"then press OK and keep looking at it for {seconds:g} seconds."
         )
         values: list[float] = []

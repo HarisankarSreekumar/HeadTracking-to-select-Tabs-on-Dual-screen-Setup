@@ -1,6 +1,8 @@
 """Glue between gaze readings and window focus. Pure: all OS calls are injected."""
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from typing import Callable, Protocol
 
@@ -8,6 +10,8 @@ from .classifier import DwellGate, MonitorClassifier, Smoother
 from .config import Config
 from .gaze import GazeSample
 from .windows import WindowInfo, pick_window
+
+log = logging.getLogger(__name__)
 
 
 class Controller:
@@ -29,9 +33,16 @@ class Controller:
         self._classifier: MonitorClassifier | None = None
         self.paused = False
         self.status = "running"
+        # on_gaze runs on the camera thread; toggle_pause comes from the hotkey and
+        # tray threads. One lock keeps smoother/dwell state consistent.
+        self._lock = threading.RLock()
         self.recalibrated(cfg.calibration, cfg.pitch_baseline)
 
     def recalibrated(self, calibration: dict[str, float], pitch_baseline: float | None = None) -> None:
+        with self._lock:
+            self._recalibrated(calibration, pitch_baseline)
+
+    def _recalibrated(self, calibration: dict[str, float], pitch_baseline: float | None) -> None:
         self.cfg.calibration = dict(calibration)
         self.cfg.pitch_baseline = pitch_baseline
         try:
@@ -43,9 +54,10 @@ class Controller:
             self.status = "running" if self._classifier else "needs_calibration"
 
     def toggle_pause(self) -> None:
-        self.paused = not self.paused
-        self._reset()
-        self.status = "paused" if self.paused else "running"
+        with self._lock:
+            self.paused = not self.paused
+            self._reset()
+            self.status = "paused" if self.paused else "running"
 
     def _reset(self) -> None:
         self._smoother.reset()
@@ -59,6 +71,10 @@ class Controller:
         return base is not None and abs(sample.pitch - base) > self.cfg.max_pitch_dev_deg
 
     def on_gaze(self, gaze: GazeSample | None, now: float) -> int | None:
+        with self._lock:
+            return self._on_gaze(gaze, now)
+
+    def _on_gaze(self, gaze: GazeSample | None, now: float) -> int | None:
         if self.paused:
             self.status = "paused"
             return None
@@ -83,6 +99,8 @@ class Tracker(Protocol):
     is_open: bool
 
     def read_gaze(self, eye_weight: float) -> GazeSample | None: ...
+
+    def close(self) -> None: ...
 
 
 class CameraLoop:
@@ -118,5 +136,17 @@ class CameraLoop:
                 self.controller.status = "no_camera"
                 self._next_attempt = now + self._retry_s
                 return
-        self.last_gaze = self.tracker.read_gaze(self.controller.cfg.eye_weight)
-        self.controller.on_gaze(self.last_gaze, now)
+        try:
+            self.last_gaze = self.tracker.read_gaze(self.controller.cfg.eye_weight)
+            self.controller.on_gaze(self.last_gaze, now)
+        except Exception:
+            # Never let one bad frame / driver error kill the camera thread silently.
+            log.exception("gaze loop error; reopening camera in %.0f s", self._retry_s)
+            try:
+                self.tracker.close()
+            except Exception:
+                pass
+            self.tracker = None
+            self.last_gaze = None
+            self.controller.status = "error"
+            self._next_attempt = now + self._retry_s

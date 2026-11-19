@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import logging
 import threading
 import time
+from typing import Callable
 
-from .calibration import CalibrationError, run_calibration
+from .calibration import CalibrationError, describe_monitors, run_calibration
 from .config import default_config_path, load_config, save_config
 from .controller import CameraLoop, Controller
 
@@ -16,13 +18,29 @@ _STATUS_TEXT = {
     "paused": "Gaze Focus: paused",
     "needs_calibration": "Gaze Focus: monitors changed - choose Recalibrate",
     "no_camera": "Gaze Focus: webcam unavailable - retrying",
+    "error": "Gaze Focus: camera error - retrying",
 }
 _STATUS_COLOR = {
     "running": (46, 160, 67),
     "paused": (150, 150, 150),
     "needs_calibration": (230, 160, 0),
     "no_camera": (210, 50, 50),
+    "error": (210, 50, 50),
 }
+
+
+class StatusDisplay:
+    """Calls ``apply`` only when the status actually changes (redrawing the tray
+    icon every frame costs a temp file + two Explorer round-trips each time)."""
+
+    def __init__(self, apply: Callable[[str], None]) -> None:
+        self._apply = apply
+        self._last: str | None = None
+
+    def update(self, status: str) -> None:
+        if status != self._last:
+            self._last = status
+            self._apply(status)
 
 
 def _message(text: str, error: bool = False) -> None:
@@ -51,6 +69,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="gaze_focus")
     parser.add_argument("--debug", action="store_true", help="print gaze angle and status twice a second")
     args = parser.parse_args()
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.WARNING)
 
     path = default_config_path()
     cfg = load_config(path)
@@ -76,16 +95,17 @@ def main() -> None:
             _message("Can't calibrate: the webcam isn't available. Close other apps using it and try again.", True)
             return
         monitors = w32.list_monitors()
-        was_paused = controller.paused
-        controller.paused = True
         try:
-            result = run_calibration(lambda: loop.tracker.read_gaze(cfg.eye_weight), monitors, _message)
+            result = run_calibration(
+                lambda: loop.tracker.read_gaze(cfg.eye_weight),
+                monitors,
+                _message,
+                labels=describe_monitors(w32.monitor_rects()),
+            )
         except CalibrationError as exc:
             _message(f"Calibration failed.\n\n{exc}", True)
-            controller.paused = was_paused
             controller.recalibrated(cfg.calibration, cfg.pitch_baseline)
             return
-        controller.paused = was_paused
         controller.recalibrated(result.monitors, result.pitch_baseline)
         save_config(cfg, path)
         _message("Calibration saved. Gaze Focus is running.")
@@ -96,16 +116,29 @@ def main() -> None:
             started = time.monotonic()
             if want_calibration.is_set() and loop.tracker is not None:
                 want_calibration.clear()
-                calibrate()
+                try:
+                    calibrate()
+                except Exception as exc:  # keep the camera thread alive
+                    _message(f"Calibration failed unexpectedly: {exc}", True)
             loop.step()
             if args.debug and started - last_debug > 0.5:
                 last_debug = started
                 print(f"status={controller.status} gaze={loop.last_gaze}")
-            icon.icon = _icon_image(controller.status)
-            icon.title = _STATUS_TEXT.get(controller.status, controller.status)
+            display.update(controller.status)
             time.sleep(max(0.0, FRAME_INTERVAL_S - (time.monotonic() - started)))
         if loop.tracker is not None:
             loop.tracker.close()
+
+    images = {}
+
+    def show_status(status: str) -> None:
+        if status not in images:
+            images[status] = _icon_image(status)
+        icon.icon = images[status]
+        icon.title = _STATUS_TEXT.get(status, status)
+        icon.update_menu()
+
+    display = StatusDisplay(show_status)
 
     def on_toggle(_icon=None, _item=None) -> None:
         controller.toggle_pause()

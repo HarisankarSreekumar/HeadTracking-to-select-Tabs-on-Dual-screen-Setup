@@ -37,16 +37,17 @@ Add `--debug` to print the measured gaze angle and status twice a second, which 
 
 On first run, and whenever your monitors change, Gaze Focus asks you to look at each monitor in turn. For each one:
 
-1. Sit as you normally do and turn toward the monitor named in the message.
+1. Sit as you normally do and turn toward the monitor named in the message ("your LEFT monitor", "your RIGHT monitor").
 2. Press **OK** and keep looking at that monitor for 3 seconds.
 
 Turn your head, not just your eyes. To run calibration again (for example after moving the webcam or your chair), right-click the tray icon and choose **Recalibrate**.
 
 ## Using it
 
-- **Tray icon:** green means running, grey paused, orange "monitors changed, recalibrate", red "webcam unavailable" (it retries every 5 seconds).
+- **Tray icon:** green means running, grey paused, orange "monitors changed, recalibrate", red "webcam unavailable" or "camera error" (it retries every 5 seconds).
 - **Ctrl+Alt+G** pauses and resumes it. Left-clicking the tray icon does the same.
 - A quick glance at the other monitor doesn't switch focus. You have to look there for about half a second.
+- Looking well down or up (at your phone or keyboard) never switches focus.
 - If you click a window on the monitor yourself, Gaze Focus leaves your choice alone.
 
 ## Settings
@@ -61,7 +62,9 @@ Settings are stored in `%APPDATA%\GazeFocus\config.json`. Quit Gaze Focus before
 | `eye_weight` | `0.5` | How much eye direction counts compared with head direction (`0` = head only) |
 | `hotkey` | `ctrl+alt+g` | Pause/resume hotkey |
 | `camera_index` | `0` | Which webcam to use, if you have more than one |
+| `max_pitch_dev_deg` | `20.0` | How far (degrees) your head may tilt up or down from your calibrated posture before readings are ignored |
 | `calibration` | — | Written by calibration; delete it to force recalibration |
+| `pitch_baseline` | — | Written by calibration: your normal head tilt while looking at the screens |
 
 ## Troubleshooting
 

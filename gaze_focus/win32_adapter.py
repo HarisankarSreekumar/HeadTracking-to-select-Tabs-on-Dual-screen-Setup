@@ -15,8 +15,6 @@ GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 MONITOR_DEFAULTTONEAREST = 2
 DWMWA_CLOAKED = 14
-VK_MENU = 0x12
-KEYEVENTF_KEYUP = 0x0002
 
 # Shell windows that are "visible with a title" but should never get focus.
 _SKIP_CLASSES = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"}
@@ -76,6 +74,21 @@ def list_monitors() -> list[str]:
     return names
 
 
+def monitor_rects() -> dict[str, tuple[int, int, int, int]]:
+    rects: dict[str, tuple[int, int, int, int]] = {}
+
+    def cb(hmon, _hdc, _rect, _lparam):
+        info = MONITORINFOEXW()
+        info.cbSize = ctypes.sizeof(MONITORINFOEXW)
+        if user32.GetMonitorInfoW(hmon, ctypes.byref(info)):
+            r = info.rcMonitor
+            rects[info.szDevice] = (r.left, r.top, r.right, r.bottom)
+        return True
+
+    user32.EnumDisplayMonitors(None, None, MonitorEnumProc(cb), 0)
+    return rects
+
+
 def _text(hwnd) -> str:
     n = user32.GetWindowTextLengthW(hwnd)
     buf = ctypes.create_unicode_buffer(n + 1)
@@ -126,18 +139,45 @@ def foreground_monitor() -> str | None:
     return _window_monitor(hwnd) if hwnd else None
 
 
-def focus_window(hwnd: int) -> bool:
-    """Bring ``hwnd`` to the foreground despite Windows' focus-stealing lock."""
-    # A synthetic Alt tap counts as user input, which lets this process set the
-    # foreground window. Release it *before* switching so the new window
-    # doesn't receive a lone Alt-up (which would open its menu bar).
-    user32.keybd_event(VK_MENU, 0, 0, 0)
-    user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
-    if user32.SetForegroundWindow(hwnd):
-        return user32.GetForegroundWindow() == hwnd
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx", wintypes.LONG),
+        ("dy", wintypes.LONG),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_size_t),
+    ]
 
+
+class _INPUTUNION(ctypes.Union):
+    _fields_ = [("mi", MOUSEINPUT)]  # largest member; keyboard/hardware inputs not needed
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", wintypes.DWORD), ("u", _INPUTUNION)]
+
+
+INPUT_MOUSE = 0
+MOUSEEVENTF_MOVE = 0x0001
+user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+
+
+def _is_foreground(hwnd: int) -> bool:
+    return user32.GetForegroundWindow() == hwnd
+
+
+def _nudge_input() -> None:
+    """Zero-distance mouse move: counts as user input (lifting the foreground
+    lock) without pressing any key, so no menu bar or KeyTips can open."""
+    inp = INPUT(type=INPUT_MOUSE, u=_INPUTUNION(mi=MOUSEINPUT(0, 0, 0, MOUSEEVENTF_MOVE, 0, 0)))
+    user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+
+
+def _attach_and_focus(hwnd: int) -> None:
     fg = user32.GetForegroundWindow()
-    fg_thread = user32.GetWindowThreadProcessId(fg, None)
+    fg_thread = user32.GetWindowThreadProcessId(fg, None) if fg else 0
     me = kernel32.GetCurrentThreadId()
     attached = bool(fg_thread and fg_thread != me and user32.AttachThreadInput(me, fg_thread, True))
     try:
@@ -146,5 +186,19 @@ def focus_window(hwnd: int) -> bool:
     finally:
         if attached:
             user32.AttachThreadInput(me, fg_thread, False)
+
+
+def focus_window(hwnd: int) -> bool:
+    """Bring ``hwnd`` to the foreground despite Windows' focus-stealing lock.
+
+    Escalates only as needed, and never injects keystrokes."""
+    if user32.SetForegroundWindow(hwnd) and _is_foreground(hwnd):
+        return True
+    _attach_and_focus(hwnd)
+    if _is_foreground(hwnd):
+        return True
+    _nudge_input()
     time.sleep(0.01)
-    return user32.GetForegroundWindow() == hwnd
+    _attach_and_focus(hwnd)
+    time.sleep(0.01)
+    return _is_foreground(hwnd)

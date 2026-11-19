@@ -139,3 +139,30 @@ def test_looking_down_at_phone_never_focuses():
     # looking back up at M2 switches normally after a fresh dwell
     assert c.on_gaze(S(20, 5), 1.1) is None
     assert c.on_gaze(S(20, 5), 1.7) == W2.hwnd
+
+
+def test_tracker_exception_is_contained_and_camera_reopened():
+    t = [0.0]
+    opened = []
+
+    class Boom:
+        is_open = True
+
+        def read_gaze(self, eye_weight):
+            raise RuntimeError("driver hiccup")
+
+        def close(self):
+            self.is_open = False
+
+    def open_tracker():
+        opened.append(Boom())
+        return opened[-1]
+
+    c = Fakes().controller()
+    loop = CameraLoop(open_tracker, c, clock=lambda: t[0], retry_s=5.0)
+    loop.step()  # must not raise
+    assert c.status == "error"
+    assert opened[0].is_open is False
+    t[0] = 5.5
+    loop.step()
+    assert len(opened) == 2
