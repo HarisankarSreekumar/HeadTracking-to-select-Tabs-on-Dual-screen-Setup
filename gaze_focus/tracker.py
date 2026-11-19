@@ -19,6 +19,8 @@ MODEL_URL = (
     "face_landmarker/float16/1/face_landmarker.task"
 )
 
+MAX_READ_FAILURES = 30
+
 # Eye landmarks, each pair ordered image-left -> image-right so that a positive
 # offset means "looking toward image right" for both eyes (same direction as a
 # positive head yaw). Do NOT mirror the camera frame, or this flips.
@@ -54,6 +56,7 @@ class FaceTracker:
         self._landmarker = None
         self._t0 = time.monotonic()
         self._last_ts = -1
+        self._read_failures = 0
 
     def open(self) -> bool:
         import cv2
@@ -83,7 +86,11 @@ class FaceTracker:
             return None
         ok, frame = self._cap.read()
         if not ok or frame is None:
+            self._read_failures += 1
+            if self._read_failures >= MAX_READ_FAILURES:
+                self.close()  # camera unplugged / taken by another app; CameraLoop reopens it
             return None
+        self._read_failures = 0
         h, w = frame.shape[:2]
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         ts = int((time.monotonic() - self._t0) * 1000)
